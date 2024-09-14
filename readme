@@ -1,0 +1,141 @@
+证件照小程序
+mkdir -p /data/zhengjianzhao
+cd /data/zhengjianzhao/
+git clone https://github.com/Zeyi-Lin/HivisionIDPhotos.git
+git clone https://github.com/no1xuan/HivisionIDPhotos-wechat-weapp.git zjzWx
+git clone https://github.com/no1xuan/photo.git
+git clone https://github.com/no1xuan/zjzNsfw.git
+#建docker-compose.yml
+vi docker-compose.yml
+version: "3.8"
+name: zjzWx
+services:
+hivision_idphotos:
+    build:
+      context: ./HivisionIDPhotos
+      dockerfile: Dockerfile
+    image: linzeyi/hivision_idphotos
+    command: python3 -u app.py --host 0.0.0.0 --port 7860
+    ports:
+      - '7860:7860'
+
+  hivision_idphotos_api:
+    build:
+      context: ./HivisionIDPhotos
+      dockerfile: Dockerfile
+    image: linzeyi/hivision_idphotos
+    command: python3 deploy_api.py
+    ports:
+      - '8080:8080'
+
+  mysql:
+    container_name: zjzWx-mysql
+    image: mysql:8
+    restart: unless-stopped
+    tty: true
+    ports:
+      - "3306:3306"
+    environment:
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-zjzWx}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-123456}
+    volumes:
+      - mysql:/var/lib/mysql/
+      - ./zjzWx/1.sql:/docker-entrypoint-initdb.d/1.sql:ro
+
+  redis:
+    container_name: zjzWx-redis
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis:/data
+
+  server:
+    container_name: zjzWx-server
+    build:
+      context: ./zjzWx/
+    image: zjzWx
+    restart: unless-stopped
+    ports:
+      - "8010:8010"
+    environment:
+      JAVA_OPTS:
+        ${JAVA_OPTS:-
+          -Xms512m
+          -Xmx512m
+          -Djava.security.egd=file:/dev/./urandom
+        }
+      ARGS:
+        --spring.datasource.dynamic.datasource.master.url=${MASTER_DATASOURCE_URL:-jdbc:mysql://yudao-mysql:3306/zjzWx?useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&nullCatalogMeansCurrent=true}
+        --spring.datasource.dynamic.datasource.master.username=${MASTER_DATASOURCE_USERNAME:-root}
+        --spring.datasource.dynamic.datasource.master.password=${MASTER_DATASOURCE_PASSWORD:-123456}
+        --spring.redis.host=${REDIS_HOST:-zjzWx-redis}
+    depends_on:
+      - mysql
+      - redis
+
+  zjzNsfw:
+    container_name: zjzNsfw
+    build:
+      context: ./zjzNsfw
+      dockerfile: Dockerfile
+    image: zjzNsfw
+    restart: unless-stopped
+    ports:
+      - "3006:3006"
+    depends_on:
+      - server
+
+volumes:
+  mysql:
+    driver: local
+  redis:
+    driver: local
+#建zjzWx的Dockerfile
+vi zjzWx/Dockerfile
+FROM maven as build-stage
+RUN mkdir -p /zjzWx
+WORKDIR /zjzWx
+COPY . ./zjzWx
+RUN --mount=type=cache,id=maven-store,target=/root/.maven-store \
+    mvn clean install -Dmaven.test.skip=true
+#编译JAR包HivisionIDPhotos-wechat-weapp-1.0-SNAPSHOT.jar
+## -- stage: target => java
+FROM eclipse-temurin:8-jre
+
+## 创建目录，并使用它作为工作目录
+RUN mkdir -p /zjzWx
+WORKDIR /zjzWx
+## 将后端项目的 Jar 文件，复制到镜像中
+COPY --from=build-stage /zjzWx/target/HivisionIDPhotos-wechat-weapp-1.0-SNAPSHOT.jar app.jar
+
+## 设置 TZ 时区
+ENV TZ=Asia/Shanghai
+## 设置 JAVA_OPTS 环境变量，可通过 docker run -e "JAVA_OPTS=" 进行覆盖
+ENV JAVA_OPTS="-Xmx1024M -Xms256M"
+
+## 应用参数
+ENV ARGS=""
+
+## 暴露后端项目的 8010 端口
+EXPOSE 8010
+
+## 启动后端项目
+CMD java ${JAVA_OPTS} -jar app.jar $ARGS
+
+#建zjzNsfw的Dockerfile
+vi zjzNsfw/Dockerfile
+FROM node:16-alpine
+
+WORKDIR /zjzNsfw
+
+COPY .npmrc package.json yarn.lock ./
+RUN --mount=type=cache,id=yarn-store,target=/root/.yarn-store \
+    yarn install --frozen-lockfile
+
+COPY . .
+ARG NODE_ENV=""
+RUN env ${NODE_ENV} yarn start
+
+EXPOSE 3006
