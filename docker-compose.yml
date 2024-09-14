@@ -1,0 +1,85 @@
+version: "3.8"
+name: zjzwx_system
+services:
+  hivision_idphotos:
+    build:
+      context: ./HivisionIDPhotos
+      dockerfile: Dockerfile
+    image: linzeyi/hivision_idphotos
+    command: python3 -u app.py --host 0.0.0.0 --port 7860
+    ports:
+      - '7860:7860'
+
+  hivision_idphotos_api:
+    build:
+      context: ./HivisionIDPhotos
+      dockerfile: Dockerfile
+    image: linzeyi/hivision_idphotos
+    command: python3 deploy_api.py
+    ports:
+      - '8080:8080'
+
+  mysql:
+    container_name: zjzWx-mysql
+    image: mysql:8
+    restart: unless-stopped
+    tty: true
+    ports:
+      - "3306:3306"
+    environment:
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-zjzWx}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-123456}
+    volumes:
+      - mysql:/var/lib/mysql/
+      - ./zjzWx/1.sql:/docker-entrypoint-initdb.d/1.sql:ro
+
+  redis:
+    container_name: zjzWx-redis
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis:/data
+
+  server:
+    container_name: zjzWx-server
+    build:
+      context: ./zjzWx/
+    image: zjzwx
+    restart: unless-stopped
+    ports:
+      - "8010:8010"
+    environment:
+      JAVA_OPTS:
+        ${JAVA_OPTS:-
+          -Xms512m
+          -Xmx512m
+          -Djava.security.egd=file:/dev/./urandom
+        }
+      ARGS:
+        --spring.datasource.dynamic.datasource.master.url=${MASTER_DATASOURCE_URL:-jdbc:mysql://zjzWx-mysql:3306/zjzWx?useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&nullCatalogMeansCurrent=true}
+        --spring.datasource.dynamic.datasource.master.username=${MASTER_DATASOURCE_USERNAME:-root}
+        --spring.datasource.dynamic.datasource.master.password=${MASTER_DATASOURCE_PASSWORD:-123456}
+        --spring.redis.host=${REDIS_HOST:-zjzWx-redis}
+    depends_on:
+      - mysql
+      - redis
+
+  zjznsfw:
+    container_name: zjzNsfw
+    build:
+      context: ./zjzNsfw
+      dockerfile: Dockerfile
+    image: zjznsfw
+    restart: unless-stopped
+    ports:
+      - "3006:3006"
+    depends_on:
+      - server
+
+volumes:
+  mysql:
+    driver: local
+  redis:
+    driver: local
