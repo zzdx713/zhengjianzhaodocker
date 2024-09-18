@@ -10,7 +10,7 @@ RUN yum install -y java-1.8.0-openjdk java-1.8.0-openjdk-devel
 # 设置JAVA_HOME环境变量
 ENV JAVA_HOME /usr/lib/jvm/java-1.8.0-openjdk
  
-# 安装Mave
+# 安装Maven 下载解压maven  https://dlcdn.apache.org/maven/maven-3/3.8.8/binaries/apache-maven-3.8.8-bin.zip
 WORKDIR /usr/local/maven
 COPY maven /usr/local/maven
 # 设置MAVEN_HOME环境变量
