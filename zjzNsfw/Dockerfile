@@ -2,7 +2,7 @@ FROM node:16-alpine
 
 WORKDIR /zjzNsfw
 
-COPY .npmrc package.json yarn.lock ./
+COPY  package.json yarn.lock ./
 RUN --mount=type=cache,id=yarn-store,target=/root/.yarn-store \
     yarn install --frozen-lockfile
 
